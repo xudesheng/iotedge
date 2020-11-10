@@ -8,7 +8,8 @@ members = [
     "mqtt-generic",
     "mqtt-policy",
     "mqttd",
-    "policy"
+    "policy",
+    "norcim"
 ]
 
 [profile.release]
