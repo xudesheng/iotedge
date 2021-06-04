@@ -1,23 +1,68 @@
+parameters:
+  EventHubCompatibleEndpoint: '$(TestEventHubCompatibleEndpoint)'
+  IotHubConnectionString: '$(TestIotHubConnectionString)'
+  test_type: '' 
+
 steps:
 - pwsh: |
     $testFile = '$(binDir)/Microsoft.Azure.Devices.Edge.Test.dll'
+    $test_type = '${{ parameters.test_type }}'
 
-    # Unfortunately CentOs has some failing test that need to be worked on.
+    # Filter out unstable tests.
+    $filter = 'Category!=Unstable'
+
     if ('$(Agent.Name)'.Contains('centos'))
     {
-      sudo --preserve-env dotnet vstest $testFile --logger:trx --testcasefilter:'Category=CentOsSafe'
+      $filter += '&Category=CentOsSafe'
+    }
+    elseif ('$(arch)' -eq 'arm32v7' -Or '$(arch)' -eq 'arm64v8')
+    {
+      $filter += '&Category!=UnstableOnArm'
+    }
+    
+    if ($test_type -eq 'nestededge_mqtt')
+    {
+      $filter += '&Category!=SingleNodeOnly'
+      $filter += '&Category!=NestedEdgeAmqpOnly'
+      $filter += '&Category!=LegacyMqttRequired'
+    
+      $filter += '&FullyQualifiedName!~Provisioning&FullyQualifiedName!~PriorityQueueModuleToHubMessages&FullyQualifiedName!~SasOutOfScope&FullyQualifiedName!~X509ManualProvision&FullyQualifiedName!~AuthorizationPolicyUpdateTest&FullyQualifiedName!~AuthorizationPolicyExplicitPolicyTest'
+    }
+    elseif ($test_type -eq 'nestededge_amqp')
+    {
+      $filter += '&Category!=SingleNodeOnly'
+      $filter += '&Category!=BrokerRequired'
+
+      $filter += '&FullyQualifiedName!~Provisioning&FullyQualifiedName!~PriorityQueueModuleToHubMessages&FullyQualifiedName!~SasOutOfScope&FullyQualifiedName!~X509ManualProvision&FullyQualifiedName!~AuthorizationPolicyUpdateTest&FullyQualifiedName!~AuthorizationPolicyExplicitPolicyTest'
+    }
+    elseif ($test_type -eq 'nestededge_isa95')
+    {
+      $filter = 'Category=nestededge_isa95'
+    }
+    elseif ($test_type -eq 'http_proxy')
+    {
+      #Disable tests that don't work in proxy environment. Renable post-investigation.
+      $filter += '&FullyQualifiedName!~PriorityQueue&FullyQualifiedName!~PlugAndPlay&FullyQualifiedName!~ValidateMetrics'
+
+      #Disable tests that timeout in proxy self-host environment
+      $filter += '&FullyQualifiedName!~TestGetModuleLogs&FullyQualifiedName!~TestUploadSupportBundle'
+
+      #Disable nested edge tests
+      $filter += '&Category!=NestedEdgeOnly'
     }
     else
     {
-      sudo --preserve-env dotnet vstest $testFile --logger:trx
-    }
-  displayName: Run tests
+      $filter += '&Category!=NestedEdgeOnly'
+    } 
+
+    sudo --preserve-env dotnet test $testFile --logger:trx --testcasefilter:$filter
+
+  displayName: Run tests ${{ parameters.test_type }}
+  continueOnError: true
   env:
     E2E_DPS_GROUP_KEY: $(TestDpsGroupKeySymmetric)
-    E2E_EVENT_HUB_ENDPOINT: $(TestEventHubCompatibleEndpoint)
-    E2E_PREVIEW_EVENT_HUB_ENDPOINT: $(TestPreviewEventHubCompatibleEndpoint)
-    E2E_IOT_HUB_CONNECTION_STRING: $(TestIotHubConnectionString)
-    E2E_PREVIEW_IOT_HUB_CONNECTION_STRING: $(TestPreviewIotHubConnectionString)
+    E2E_EVENT_HUB_ENDPOINT: ${{ parameters['EventHubCompatibleEndpoint'] }}
+    E2E_IOT_HUB_CONNECTION_STRING: ${{ parameters['IotHubConnectionString'] }}
     E2E_REGISTRIES__0__PASSWORD: $(TestContainerRegistryPassword)
     E2E_ROOT_CA_PASSWORD: $(TestRootCaPassword)
     E2E_BLOB_STORE_SAS: $(TestBlobStoreSas)
@@ -37,7 +82,7 @@ steps:
   condition: and(succeededOrFailed(), not(variables['Agent.ProxyUrl']))
 
 - pwsh: |
-    $logDir = '$(Build.ArtifactStagingDirectory)/logs'
+    $logDir = '$(Build.ArtifactStagingDirectory)/logs${{ parameters.test_type }}'
     New-Item $logDir -ItemType Directory -Force | Out-Null
     Out-File "$logDir/$(Build.DefinitionName)-$(Build.BuildNumber)"
     Copy-Item "$(Build.SourcesDirectory)/TestResults" "$logDir/" -Recurse
@@ -52,6 +97,6 @@ steps:
 - task: PublishBuildArtifacts@1
   displayName: Publish logs
   inputs:
-    PathtoPublish: $(Build.ArtifactStagingDirectory)/logs
+    PathtoPublish: $(Build.ArtifactStagingDirectory)/logs${{ parameters.test_type }}
     ArtifactName: logs-end-to-end-$(Build.BuildNumber)-$(System.PhaseName)
   condition: succeededOrFailed()

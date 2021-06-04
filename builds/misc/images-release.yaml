@@ -1,4 +1,6 @@
 name: $(version)
+variables:
+  NugetSecurityAnalysisWarningLevel: warn
 jobs: 
 ################################################################################
   - job: linux_dotnet_projects
@@ -10,34 +12,22 @@ jobs:
     timeoutInMinutes: 180
     displayName: LinuxDotnet
     pool: 
-      name: "Hosted Ubuntu 1604"
+      vmImage: ubuntu-18.04
     steps: 
       # Setup dependencies
       - bash: |
             docker login '$(build.registry.address)' --username '$(build.registry.user)' --password '$(build.registry.password)'
             docker login '$(registry.address)' --username '$(registry.user)' --password '$(registry.password)'
         displayName: 'Docker Login'
-      - task: Bash@3
-        displayName: Install Rust
-        inputs:
-          filePath: scripts/linux/generic-rust/install.sh
-          arguments: --project-root "edgelet" --package-arm
-      - bash: "echo \"##vso[task.setvariable variable=PATH;]$HOME/.cargo/bin:$PATH\""
-        displayName: "Modify path"
-      - template: ../templates/install-dotnet2.yaml
       - template: ../templates/install-dotnet3.yaml
       - template: ../templates/dotnet3-globaljson.yaml # use dotnet 3 as primary install for build
-      - bash: "cargo install --git https://github.com/arsing/cross.git --branch set-path"
-        displayName: "Install cross (fork with docker fix)"
       # Build
       - task: ShellScript@2
         displayName: "Build Azure-IoT-Edge-Core"
         inputs: 
           args: "-c Release"
           scriptPath: scripts/linux/buildBranch.sh
-      - template: templates/build-broker.yaml
-      - template: templates/build-watchdog.yaml
-      - template: templates/consolidate-edgehub-artifacts.yaml
+      - template: templates/build-broker-watchdog.yaml
       # Code Sign
       - template: ../templates/dotnet2-globaljson.yaml # switch to dotnet 2 as primary install for code sign
       - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@1
@@ -332,7 +322,7 @@ jobs:
 ################################################################################
     displayName: Publish Manifest Images
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-18.04'
     dependsOn:
       - linux_dotnet_projects
     steps:

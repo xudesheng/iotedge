@@ -27,8 +27,7 @@ proptest! {
     fn broker_manages_sessions(
         events in proptest::collection::vec(arb_broker_event(), 1..50)
     ) {
-    tokio::runtime::Builder::new()
-        .basic_scheduler()
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
@@ -56,7 +55,8 @@ async fn test_broker_manages_sessions(events: impl IntoIterator<Item = BrokerEve
 
     assert_eq!(sessions.len(), model.sessions.len());
 
-    for (client_info, subscriptions, _) in sessions.into_iter().map(|session| session.into_parts())
+    for (client_info, subscriptions, _, _, _) in
+        sessions.into_iter().map(|session| session.into_parts())
     {
         let model_session = model
             .sessions

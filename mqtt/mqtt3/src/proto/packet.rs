@@ -179,7 +179,7 @@ impl PacketMeta for Connect {
         let client_id = super::Utf8StringDecoder::default()
             .decode(&mut src)?
             .ok_or(super::DecodeError::IncompletePacket)?;
-        let client_id = if client_id == "" {
+        let client_id = if client_id.is_empty() {
             if connect_flags & 0x02 == 0 {
                 return Err(super::DecodeError::ConnectZeroLengthIdWithExistingSession);
             }
@@ -1030,11 +1030,10 @@ impl tokio_util::codec::Decoder for PacketCodec {
     }
 }
 
-impl tokio_util::codec::Encoder for PacketCodec {
-    type Item = Packet;
+impl tokio_util::codec::Encoder<Packet> for PacketCodec {
     type Error = super::EncodeError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Packet, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
         dst.reserve(std::mem::size_of::<u8>() + 4 * std::mem::size_of::<u8>());
 
         match &item {

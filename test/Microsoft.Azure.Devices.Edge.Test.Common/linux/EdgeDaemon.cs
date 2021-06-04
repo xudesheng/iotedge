@@ -3,6 +3,7 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Linux
 {
     using System;
     using System.ComponentModel;
+    using System.IO;
     using System.Linq;
     using System.Net;
     using System.ServiceProcess;
@@ -13,14 +14,9 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Linux
 
     public class EdgeDaemon : IEdgeDaemon
     {
-        readonly Option<string> bootstrapAgentImage;
-        readonly Option<Registry> bootstrapRegistry;
         readonly PackageManagement packageManagement;
 
-        public static async Task<EdgeDaemon> CreateAsync(
-            Option<string> bootstrapAgentImage,
-            Option<Registry> bootstrapRegistry,
-            CancellationToken token)
+        public static async Task<EdgeDaemon> CreateAsync(CancellationToken token)
         {
             string[] platformInfo = await Process.RunAsync("lsb_release", "-sir", token);
             if (platformInfo.Length == 1)
@@ -58,16 +54,11 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Linux
                     throw new NotImplementedException($"Don't know how to install daemon on operating system '{os}'");
             }
 
-            return new EdgeDaemon(
-                bootstrapAgentImage,
-                bootstrapRegistry,
-                new PackageManagement(os, version, packageExtension));
+            return new EdgeDaemon(new PackageManagement(os, version, packageExtension));
         }
 
-        EdgeDaemon(Option<string> bootstrapAgentImage, Option<Registry> bootstrapRegistry, PackageManagement packageManagement)
+        EdgeDaemon(PackageManagement packageManagement)
         {
-            this.bootstrapAgentImage = bootstrapAgentImage;
-            this.bootstrapRegistry = bootstrapRegistry;
             this.packageManagement = packageManagement;
         }
 
@@ -107,8 +98,17 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Linux
                 async () =>
                 {
                     await this.InternalStopAsync(token);
-                    var yaml = new DaemonConfiguration("/etc/iotedge/config.yaml", this.bootstrapAgentImage, this.bootstrapRegistry);
-                    (string msg, object[] props) = await config(yaml);
+
+                    ConfigFilePaths paths = new ConfigFilePaths
+                    {
+                        Keyd = "/etc/aziot/keyd/config.toml",
+                        Certd = "/etc/aziot/certd/config.toml",
+                        Identityd = "/etc/aziot/identityd/config.toml",
+                        Edged = "/etc/aziot/edged/config.toml"
+                    };
+
+                    DaemonConfiguration conf = new DaemonConfiguration(paths);
+                    (string msg, object[] props) = await config(conf);
 
                     message += $" {msg}";
                     properties = properties.Concat(props).ToArray();
@@ -128,9 +128,40 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Linux
 
         async Task InternalStartAsync(CancellationToken token)
         {
-            string[] output = await Process.RunAsync("systemctl", "start iotedge", token);
+            string[] output = await Process.RunAsync("systemctl", "start aziot-keyd aziot-certd aziot-identityd aziot-edged", token);
             Log.Verbose(string.Join("\n", output));
             await WaitForStatusAsync(ServiceControllerStatus.Running, token);
+
+            // Waiting for the processes to enter the "Running" state doesn't guarantee that
+            // they are fully started and ready to accept requests. Therefore, this function
+            // must wait until a request can be processed.
+            while (true)
+            {
+                var processInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "iotedge",
+                    Arguments = "list",
+                    RedirectStandardOutput = true
+                };
+                var request = System.Diagnostics.Process.Start(processInfo);
+
+                if (request.WaitForExit(1000))
+                {
+                    if (request.ExitCode == 0)
+                    {
+                        request.Close();
+                        Log.Verbose("aziot-edged ready for requests");
+                        break;
+                    }
+                }
+                else
+                {
+                    request.Kill(true);
+                    request.WaitForExit();
+                    request.Close();
+                    Log.Verbose("aziot-edged not yet ready");
+                }
+            }
         }
 
         public Task StopAsync(CancellationToken token) => Profiler.Run(
@@ -157,19 +188,28 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Linux
 
             string[] commands = this.packageManagement.GetUninstallCommands();
 
-            try
+            foreach (string command in commands)
             {
-                await Profiler.Run(
+                try
+                {
+                    await Profiler.Run(
                     async () =>
                     {
-                        string[] output = await Process.RunAsync("bash", $"-c \"{string.Join(" || exit $?; ", commands)}\"", token);
-                        Log.Verbose(string.Join("\n", output));
-                    },
-                    "Uninstalled edge daemon");
-            }
-            catch (Win32Exception e)
-            {
-                Log.Verbose(e, "Failed to uninstall edge daemon, probably because it isn't installed");
+                        string[] output = await Process.RunAsync("bash", $"-c \"{string.Join(" || exit $?; ", command)}\"", token);
+                        if (output.Length > 0)
+                        {
+                            Log.Verbose($"Uninstall command '{command}' ran unsuccessfully. This is probably because this component wasn't installed. Output:\n" + string.Join("\n", output));
+                        }
+                        else
+                        {
+                            Log.Verbose($"Uninstall command '{command}' ran successfully");
+                        }
+                    }, $"Successful: {command}");
+                }
+                catch (Win32Exception e)
+                {
+                    Log.Verbose(e, $"Failed to uninstall edge component with command '{command}', probably because this component isn't installed");
+                }
             }
         }
 
@@ -180,22 +220,29 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Linux
 
         static async Task WaitForStatusAsync(ServiceControllerStatus desired, CancellationToken token)
         {
-            while (true)
-            {
-                Func<string, bool> stateMatchesDesired = desired switch
-                {
-                    ServiceControllerStatus.Running => s => s == "active",
-                    ServiceControllerStatus.Stopped => s => s == "inactive" || s == "failed",
-                    _ => throw new NotImplementedException($"No handler for {desired}"),
-                };
-                string[] output = await Process.RunAsync("systemctl", "-p ActiveState show iotedge", token);
-                Log.Verbose(output.First());
-                if (stateMatchesDesired(output.First().Split("=").Last()))
-                {
-                    break;
-                }
+            string[] processes = { "aziot-keyd", "aziot-certd", "aziot-identityd", "aziot-edged" };
 
-                await Task.Delay(250, token).ConfigureAwait(false);
+            foreach (string process in processes)
+            {
+                while (true)
+                {
+                    Func<string, bool> stateMatchesDesired = desired switch
+                    {
+                        ServiceControllerStatus.Running => s => s == "active",
+                        ServiceControllerStatus.Stopped => s => s == "inactive" || s == "failed",
+                        _ => throw new NotImplementedException($"No handler for {desired}"),
+                    };
+
+                    string[] output = await Process.RunAsync("systemctl", $"-p ActiveState show {process}", token);
+                    Log.Verbose($"{process}: {output.First()}");
+
+                    if (stateMatchesDesired(output.First().Split("=").Last()))
+                    {
+                        break;
+                    }
+
+                    await Task.Delay(250, token).ConfigureAwait(false);
+                }
             }
         }
     }

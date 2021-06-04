@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use mockall_double::double;
 use mqtt3::proto::{Publication, QoS, SubscribeTo};
 use tracing::{error, warn};
 
@@ -9,12 +10,7 @@ use crate::{
     },
 };
 
-// Import and use mocks when run tests, real implementation when otherwise
-#[cfg(test)]
-use crate::client::{
-    MockPublishHandle as PublishHandle, MockUpdateSubscriptionHandle as UpdateSubscriptionHandle,
-};
-#[cfg(not(test))]
+#[double]
 use crate::client::{PublishHandle, UpdateSubscriptionHandle};
 
 /// Pump control event for a remote upstream bridge pump.
@@ -81,7 +77,10 @@ impl RemoteUpstreamPumpEventHandler {
         match self.remote_sub_handle.subscribe(subscribe_to).await {
             Ok(_) => {
                 if let Some(existing) = self.subscriptions.insert(&topic_filter, command_id) {
-                    warn!("duplicating sub request found for {}", existing);
+                    warn!(
+                        command_id = ?existing,
+                        "duplicating sub request found for topic {}", topic_filter
+                    );
                 }
             }
             Err(e) => {
@@ -105,7 +104,10 @@ impl RemoteUpstreamPumpEventHandler {
         {
             Ok(_) => {
                 if let Some(existing) = self.subscriptions.insert(&topic_filter, command_id) {
-                    warn!("duplicating unsub request found for {}", existing);
+                    warn!(
+                        commands = ?existing,
+                        "duplicating unsub request found for topic {}", topic_filter
+                    );
                 }
             }
             Err(e) => {
@@ -164,9 +166,9 @@ impl PumpMessageHandler for RemoteUpstreamPumpEventHandler {
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::mpsc::error::TryRecvError;
 
     use bytes::Bytes;
+    use futures_util::FutureExt;
     use matches::assert_matches;
 
     use crate::{
@@ -204,7 +206,7 @@ mod tests {
         handler.handle(event).await;
 
         // check no message which was sent to local pump
-        assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+        assert!(rx.recv().now_or_never().is_none());
 
         // check subscriptions has requested topic
         assert_matches!(rpc_subscriptions.remove("/foo"), Some(id) if id == "1".into());
@@ -238,7 +240,7 @@ mod tests {
         handler.handle(event).await;
 
         // check no message which was sent to local pump
-        assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+        assert!(rx.recv().now_or_never().is_none());
 
         // check subscriptions has requested topic
         assert_matches!(rpc_subscriptions.remove("/foo"), Some(id) if id == "1".into());

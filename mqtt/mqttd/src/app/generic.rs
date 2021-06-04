@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -9,9 +10,9 @@ use futures_util::pin_mut;
 use tracing::{error, info};
 
 use mqtt_broker::{
-    auth::{AllowAll, Authorizer, authenticate_fn_ok},
-    AuthId, Broker, BrokerBuilder, BrokerSnapshot, FilePersistor,
-    MakeMqttPacketProcessor, Persist, Server, ServerCertificate, VersionedFileFormat,
+    auth::{authenticate_fn_ok, AllowAll, Authorizer},
+    AuthId, Broker, BrokerBuilder, BrokerSnapshot, FilePersistor, MakeMqttPacketProcessor, Persist,
+    Server, ServerCertificate, VersionedFileFormat,
 };
 use mqtt_generic::settings::{CertificateConfig, Settings};
 
@@ -32,12 +33,12 @@ impl Bootstrap for GenericBootstrap {
     type Authorizer = AllowAll;
 
     async fn make_broker(
-        &self, 
+        &self,
         settings: &Self::Settings,
     ) -> Result<(Broker<Self::Authorizer>, FilePersistor<VersionedFileFormat>)> {
         info!("loading state...");
         let persistence_config = settings.broker().persistence();
-        let state_dir = persistence_config.file_path();
+        let state_dir = persistence_config.folder_path();
 
         fs::create_dir_all(state_dir.clone())?;
         let mut persistor = FilePersistor::new(state_dir, VersionedFileFormat::default());
@@ -53,8 +54,16 @@ impl Bootstrap for GenericBootstrap {
         Ok((broker, persistor))
     }
 
-    fn snapshot_interval(&self, settings: &Self::Settings) -> std::time::Duration {
+    fn snapshot_interval(&self, settings: &Self::Settings) -> Duration {
         settings.broker().persistence().time_interval()
+    }
+
+    fn session_expiration(&self, settings: &Self::Settings) -> Duration {
+        settings.broker().session().expiration()
+    }
+
+    fn session_cleanup_interval(&self, settings: &Self::Settings) -> Duration {
+        settings.broker().session().cleanup_interval()
     }
 
     async fn run(

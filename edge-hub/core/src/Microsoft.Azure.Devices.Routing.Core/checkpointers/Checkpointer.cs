@@ -182,7 +182,7 @@ namespace Microsoft.Azure.Devices.Routing.Core.Checkpointers
 
             public static void CommitFinished(Checkpointer checkpointer)
             {
-                Log.LogInformation((int)EventIds.CommitFinished, "[CheckpointerCommitFinishedo] {context}", GetContextString(checkpointer));
+                Log.LogInformation((int)EventIds.CommitFinished, "[CheckpointerCommitFinished] {context}", GetContextString(checkpointer));
             }
 
             public static void Close(Checkpointer checkpointer)
@@ -196,14 +196,20 @@ namespace Microsoft.Azure.Devices.Routing.Core.Checkpointers
             }
         }
 
-        static class Metrics
+        public static class Metrics
         {
-            static readonly IMetricsGauge QueueLength = EdgeMetrics.Instance.CreateGauge(
+            public static readonly IMetricsGauge QueueLength = EdgeMetrics.Instance.CreateGauge(
                 "queue_length",
                 "Number of messages pending to be processed for the endpoint",
                 new List<string> { "endpoint", "priority", MetricsConstants.MsTelemetry });
 
-            public static void SetQueueLength(Checkpointer checkpointer) => QueueLength.Set(checkpointer.Proposed - checkpointer.Offset, new[] { checkpointer.EndpointId, checkpointer.Priority, bool.TrueString });
+            public static void SetQueueLength(Checkpointer checkpointer) => SetQueueLength(CalculateQueueLength(checkpointer), checkpointer.EndpointId, checkpointer.Priority);
+
+            public static void SetQueueLength(double length, string endpointId, string priority) => QueueLength.Set(length, new[] { endpointId, priority, bool.TrueString });
+
+            private static double CalculateQueueLength(Checkpointer checkpointer) => CalculateQueueLength(checkpointer.Proposed - checkpointer.Offset);
+
+            private static double CalculateQueueLength(long length) => Math.Max(length, 0);
         }
     }
 }

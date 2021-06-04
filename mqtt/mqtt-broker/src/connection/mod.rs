@@ -59,7 +59,7 @@ impl ConnectionHandle {
         Self::new(Uuid::new_v4(), sender)
     }
 
-    pub fn send(&mut self, message: Message) -> Result<(), Error> {
+    pub fn send(&self, message: Message) -> Result<(), Error> {
         self.sender
             .send(message)
             .map_err(Error::SendConnectionMessage)
@@ -86,7 +86,7 @@ impl PartialEq for ConnectionHandle {
 pub async fn process<I, N, P>(
     io: I,
     remote_addr: SocketAddr,
-    mut broker_handle: BrokerHandle,
+    broker_handle: BrokerHandle,
     authenticator: &N,
     make_processor: P,
 ) -> Result<(), Error>
@@ -101,6 +101,8 @@ where
     let mut timeout = TimeoutStream::new(io);
     timeout.set_read_timeout(Some(*DEFAULT_TIMEOUT));
     timeout.set_write_timeout(Some(*DEFAULT_TIMEOUT));
+
+    pin_mut!(timeout);
 
     let mut codec = Framed::new(timeout, PacketCodec::default());
 
@@ -132,10 +134,10 @@ where
                 let keep_alive = connect.keep_alive.mul_f32(KEEPALIVE_MULT);
                 if keep_alive == Duration::from_secs(0) {
                     debug!("received 0 length keepalive from client. disabling keepalive timeout");
-                    codec.get_mut().set_read_timeout(None);
+                    codec.get_mut().as_mut().set_read_timeout_pinned(None);
                 } else {
                     debug!("using keepalive timeout of {:?}", keep_alive);
-                    codec.get_mut().set_read_timeout(Some(keep_alive));
+                    codec.get_mut().as_mut().set_read_timeout_pinned(Some(keep_alive));
                 }
 
                 // [MQTT-3.1.4-3] - The Server MAY check that the contents of the CONNECT
@@ -250,7 +252,7 @@ where
 async fn incoming_task<S, P>(
     client_id: ClientId,
     mut incoming: S,
-    mut broker: BrokerHandle,
+    broker: BrokerHandle,
     mut processor: P,
 ) -> Result<(), Error>
 where
@@ -286,7 +288,7 @@ where
 async fn outgoing_task<S, P>(
     mut messages: UnboundedReceiver<Message>,
     mut outgoing: S,
-    mut broker: BrokerHandle,
+    broker: BrokerHandle,
     mut processor: P,
 ) -> Result<(), (UnboundedReceiver<Message>, Error)>
 where
@@ -323,8 +325,8 @@ where
 fn client_id(client_id: &proto::ClientId) -> ClientId {
     let id = match client_id {
         proto::ClientId::ServerGenerated => Uuid::new_v4().to_string(),
-        proto::ClientId::IdWithCleanSession(ref id) => id.to_owned(),
-        proto::ClientId::IdWithExistingSession(ref id) => id.to_owned(),
+        proto::ClientId::IdWithCleanSession(ref id) => id.clone(),
+        proto::ClientId::IdWithExistingSession(ref id) => id.clone(),
     };
     ClientId::from(id)
 }

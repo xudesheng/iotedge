@@ -1,7 +1,7 @@
-ARG base_tag=3.1.4-alpine3.11
+ARG base_tag=3.1.15-alpine3.13
 FROM azureiotedge/azureiotedge-runtime-base:1.2-linux-amd64 as builder
 
-FROM mcr.microsoft.com/dotnet/core/aspnet:${base_tag}
+FROM mcr.microsoft.com/dotnet/aspnet:${base_tag}
 
 ARG EXE_DIR=.
 
@@ -11,7 +11,7 @@ RUN apk update && \
 
 # create a default user to allow agent to run as non-root
 ARG EDGEAGENTUSER_ID
-ENV EDGEAGENTUSER_ID ${EDGEAGENTUSER_ID:-1000}
+ENV EDGEAGENTUSER_ID ${EDGEAGENTUSER_ID:-13622}
 RUN adduser -Ds /bin/sh -u ${EDGEAGENTUSER_ID} edgeagentuser 
 
 # Install RocksDB

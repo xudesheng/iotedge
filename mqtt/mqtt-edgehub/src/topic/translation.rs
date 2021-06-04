@@ -262,11 +262,11 @@ translate_c2d! {
     // Module-to-Module inputs
     module_to_module_inputs {
         to_internal {
-            format!("devices/{}/modules/{}/(?P<path>.+)", DEVICE_ID, MODULE_ID),
-            {|captures: regex::Captures<'_>, _| format!("$edgehub/{}/{}/inputs/{}", &captures["device_id"], &captures["module_id"], &captures["path"])}
+            format!("devices/{}/modules/{}/(#|inputs/.*)", DEVICE_ID, MODULE_ID),
+            {|captures: regex::Captures<'_>, _| format!("$edgehub/{}/{}/+/inputs/#", &captures["device_id"], &captures["module_id"])}
         },
         to_external {
-            format!("\\$edgehub/{}/{}/inputs/(?P<path>.+)", DEVICE_ID, MODULE_ID),
+            format!("\\$edgehub/{}/{}/[^/]+/inputs/(?P<path>.+)", DEVICE_ID, MODULE_ID),
             {|captures: regex::Captures<'_>| format!("devices/{}/modules/{}/inputs/{}", &captures["device_id"], &captures["module_id"], &captures["path"])}
         }
     }
@@ -508,20 +508,31 @@ mod tests {
         // M2M subscription
         assert_eq!(
             c2d.to_internal("devices/device_1/modules/module_a/#", &client_id),
-            Some("$edgehub/device_1/module_a/inputs/#".to_owned())
+            Some("$edgehub/device_1/module_a/+/inputs/#".to_owned())
         );
+
+        assert_eq!(
+            c2d.to_internal("devices/device_1/modules/module_a/inputs/#", &client_id),
+            Some("$edgehub/device_1/module_a/+/inputs/#".to_owned())
+        );
+
         assert_eq!(
             c2d.to_internal(
-                "devices/device_1/modules/module_a/telemetry/?rid=1",
+                "devices/device_1/modules/module_a/inputs/route_1/#",
                 &client_id
             ),
-            Some("$edgehub/device_1/module_a/inputs/telemetry/?rid=1".to_owned())
+            Some("$edgehub/device_1/module_a/+/inputs/#".to_owned())
+        );
+
+        assert_eq!(
+            c2d.to_internal("devices/device_1/modules/module_a/foo/#", &client_id),
+            None
         );
 
         // M2M incoming
         assert_eq!(
             c2d.to_external(
-                "$edgehub/device_1/module_a/inputs/route_1/%24.cdid=device_1&%24.cmid=module_a"
+                "$edgehub/device_1/module_a/b9aa0940-dcf2-457f-83a4-45f4c7ceecf9/inputs/route_1/%24.cdid=device_1&%24.cmid=module_a"
             ),
             Some(
                 "devices/device_1/modules/module_a/inputs/route_1/%24.cdid=device_1&%24.cmid=module_a"

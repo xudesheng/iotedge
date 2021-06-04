@@ -19,21 +19,36 @@ namespace Microsoft.Azure.Devices.Edge.Test
 
         [Test]
         [Category("CentOsSafe")]
+        [Category("nestededge_isa95")]
         public async Task TempSensor()
         {
             string sensorImage = Context.Current.TempSensorImage.GetOrElse(DefaultSensorImage);
             CancellationToken token = this.TestToken;
 
-            EdgeDeployment deployment = await this.runtime.DeployConfigurationAsync(
-                builder =>
-                {
-                    builder.AddModule(SensorName, sensorImage)
-                        .WithEnvironment(new[] { ("MessageCount", "1") });
-                },
-                token);
+            EdgeModule sensor;
+            DateTime startTime;
 
-            EdgeModule sensor = deployment.Modules[SensorName];
-            await sensor.WaitForEventsReceivedAsync(deployment.StartTime, token);
+            // This is a temporary solution see ticket: 9288683
+            if (!Context.Current.ISA95Tag)
+            {
+                EdgeDeployment deployment = await this.runtime.DeployConfigurationAsync(
+                    builder =>
+                    {
+                        builder.AddModule(SensorName, sensorImage)
+                            .WithEnvironment(new[] { ("MessageCount", "-1") });
+                    },
+                    token,
+                    Context.Current.NestedEdge);
+                sensor = deployment.Modules[SensorName];
+                startTime = deployment.StartTime;
+            }
+            else
+            {
+                sensor = new EdgeModule(SensorName, this.runtime.DeviceId, this.IotHub);
+                startTime = DateTime.Now;
+            }
+
+            await sensor.WaitForEventsReceivedAsync(startTime, token);
 
             await sensor.UpdateDesiredPropertiesAsync(
                 new
@@ -91,9 +106,10 @@ namespace Microsoft.Azure.Devices.Edge.Test
                                 TempFilterToCloud = $"FROM /messages/modules/{filterName}/outputs/alertOutput INTO $upstream",
                                 TempSensorToTempFilter = $"FROM /messages/modules/{SensorName}/outputs/temperatureOutput INTO BrokeredEndpoint('/modules/{filterName}/inputs/input1')"
                             }
-                        } );
+                        });
                 },
-                token);
+                token,
+                Context.Current.NestedEdge);
 
             EdgeModule filter = deployment.Modules[filterName];
             await filter.WaitForEventsReceivedAsync(deployment.StartTime, token);
@@ -103,11 +119,6 @@ namespace Microsoft.Azure.Devices.Edge.Test
         // Test Temperature Filter Function: https://docs.microsoft.com/en-us/azure/iot-edge/tutorial-deploy-function
         public async Task TempFilterFunc()
         {
-            if (OsPlatform.IsArm() && OsPlatform.Is64Bit())
-            {
-                Assert.Ignore("TempFilterFunc is disabled for arm64 because azureiotedge-functions-filter does not exist for arm64");
-            }
-
             const string filterFuncName = "tempFilterFunctions";
 
             // Azure Function Name: EdgeHubTrigger-CSharp
@@ -135,7 +146,8 @@ namespace Microsoft.Azure.Devices.Edge.Test
                             }
                         });
                 },
-                token);
+                token,
+                Context.Current.NestedEdge);
 
             EdgeModule filter = deployment.Modules[filterFuncName];
             await filter.WaitForEventsReceivedAsync(deployment.StartTime, token);
@@ -146,11 +158,6 @@ namespace Microsoft.Azure.Devices.Edge.Test
         public async Task ModuleToModuleDirectMethod(
             [Values] Protocol protocol)
         {
-            if (OsPlatform.IsWindows() && (protocol == Protocol.AmqpWs || protocol == Protocol.MqttWs))
-            {
-                Assert.Ignore("Module-to-module direct methods don't work over WebSocket on Windows");
-            }
-
             string senderImage = Context.Current.MethodSenderImage.Expect(() => new InvalidOperationException("Missing Direct Method Sender image"));
             string receiverImage = Context.Current.MethodReceiverImage.Expect(() => new InvalidOperationException("Missing Direct Method Receiver image"));
             string methodSender = $"methodSender-{protocol.ToString()}";
@@ -173,7 +180,8 @@ namespace Microsoft.Azure.Devices.Edge.Test
                     builder.AddModule(methodReceiver, receiverImage)
                         .WithEnvironment(new[] { ("ClientTransportType", clientTransport) });
                 },
-                token);
+                token,
+                Context.Current.NestedEdge);
 
             EdgeModule sender = deployment.Modules[methodSender];
             await sender.WaitForEventsReceivedAsync(deployment.StartTime, token);

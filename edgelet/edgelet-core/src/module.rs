@@ -16,8 +16,7 @@ use serde_derive::Serialize;
 use edgelet_utils::ensure_not_empty_with_context;
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::settings::{Provisioning, RuntimeSettings};
-use crate::GetTrustBundle;
+use crate::settings::RuntimeSettings;
 
 #[derive(Clone, Copy, Debug, serde_derive::Deserialize, PartialEq, serde_derive::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -140,15 +139,15 @@ impl ModuleRuntimeState {
 
 #[derive(serde_derive::Deserialize, Debug, serde_derive::Serialize)]
 pub struct ModuleSpec<T> {
-    name: String,
+    pub name: String,
     #[serde(rename = "type")]
-    type_: String,
-    config: T,
-    #[serde(default = "BTreeMap::new")]
-    env: BTreeMap<String, String>,
+    pub type_: String,
     #[serde(default)]
     #[serde(rename = "imagePullPolicy")]
-    image_pull_policy: ImagePullPolicy,
+    pub image_pull_policy: ImagePullPolicy,
+    pub config: T,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 impl<T> Clone for ModuleSpec<T>
@@ -163,6 +162,33 @@ where
             env: self.env.clone(),
             image_pull_policy: self.image_pull_policy,
         }
+    }
+}
+
+/// In nested scenario, Agent image can be pulled from its parent.
+/// It is possible to specify the parent address using the keyword $upstream
+///
+/// Unfortunately, due to the particularly runtime-independent and generic
+/// nature of configurations, it's very difficult to do "late binding" of
+/// runtime specific configuration values, such as the the $upstream
+/// `parent_hostname` resolution, which can only be done _after_ fetching the
+/// `parent_hostname` value from the underlying aziot identity service.
+///
+/// As the name implies, this trait is a bodge that enables this functionality,
+/// and was added in the lead-up to 1.2 GA.
+///
+/// A proper rework of settings loading should be undertaken when there is more
+/// time, but for now, this will have to do...
+pub trait NestedEdgeBodge {
+    fn parent_hostname_resolve(&mut self, parent_hostname: &str);
+}
+
+impl<T> ModuleSpec<T>
+where
+    T: NestedEdgeBodge,
+{
+    pub fn parent_hostname_resolve(&mut self, parent_hostname: &str) {
+        self.config.parent_hostname_resolve(parent_hostname);
     }
 }
 
@@ -384,16 +410,6 @@ pub struct ProvisioningInfo {
     pub always_reprovision_on_startup: bool,
 }
 
-impl ProvisioningInfo {
-    pub fn new(provisioning: &Provisioning) -> Self {
-        ProvisioningInfo {
-            r#type: provisioning.provisioning_type().to_string(),
-            dynamic_reprovisioning: provisioning.dynamic_reprovisioning(),
-            always_reprovision_on_startup: provisioning.always_reprovision_on_startup(),
-        }
-    }
-}
-
 #[derive(Debug, serde_derive::Serialize)]
 pub struct SystemResources {
     host_uptime: u64,
@@ -484,16 +500,11 @@ pub trait ProvisioningResult {
 pub trait MakeModuleRuntime {
     type Config: Clone + Send;
     type Settings: RuntimeSettings<Config = Self::Config>;
-    type ProvisioningResult: ProvisioningResult;
     type ModuleRuntime: ModuleRuntime<Config = Self::Config>;
     type Error: Fail;
     type Future: Future<Item = Self::ModuleRuntime, Error = Self::Error> + Send;
 
-    fn make_runtime(
-        settings: Self::Settings,
-        provisioning_result: Self::ProvisioningResult,
-        crypto: impl GetTrustBundle + Send + 'static,
-    ) -> Self::Future;
+    fn make_runtime(settings: Self::Settings) -> Self::Future;
 }
 
 pub trait ModuleRuntime: Sized {

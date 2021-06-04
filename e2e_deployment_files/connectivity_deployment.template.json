@@ -46,9 +46,6 @@
               "createOptions": "{\"ExposedPorts\": {\"9600/tcp\": {}}, \"HostConfig\": {\"PortBindings\": {\"8883/tcp\": [{\"HostPort\": \"8883\"}],\"5671/tcp\": [{\"HostPort\": \"5671\"}],\"9600/tcp\": [{\"HostPort\": \"9601\"}]}}}"
             },
             "env": {
-              "CollectMetrics": {
-                "value": "true"
-              },
               "experimentalfeatures__enabled": {
                 "value": "true"
               },
@@ -159,6 +156,9 @@
               },
               "trackingId": {
                 "value": "<TrackingId>"
+              },
+              "DirectMethodFrequency": {
+                "value": "<DirectMethodFrequency>"
               }
             },
             "settings": {
@@ -216,6 +216,9 @@
               },
               "trackingId": {
                 "value": "<TrackingId>"
+              },
+              "DirectMethodFrequency": {
+                "value": "<DirectMethodFrequency>"
               }
             },
             "settings": {
@@ -276,6 +279,9 @@
               },
               "trackingId": {
                 "value": "<TrackingId>"
+              },
+              "DirectMethodFrequency": {
+                "value": "<DirectMethodFrequency>"
               }
             },
             "settings": {
@@ -417,6 +423,12 @@
               },
               "TargetModuleId": {
                 "value": "twinTester2"
+              },
+              "TwinUpdateSize": {
+                "value": "<TwinUpdateSize>"
+              },
+              "TwinUpdateFrequency": {
+                "value": "<TwinUpdateFrequency>"
               }
             },
             "settings": {
@@ -450,6 +462,12 @@
               },
               "TransportType": {
                 "value": "Amqp"
+              },
+              "TwinUpdateSize": {
+                "value": "<TwinUpdateSize>"
+              },
+              "TwinUpdateFrequency": {
+                "value": "<TwinUpdateFrequency>"
               }
             },
             "settings": {
@@ -483,6 +501,12 @@
               },
               "TargetModuleId": {
                 "value": "twinTester4"
+              },
+              "TwinUpdateSize": {
+                "value": "<TwinUpdateSize>"
+              },
+              "TwinUpdateFrequency": {
+                "value": "<TwinUpdateFrequency>"
               }
             },
             "settings": {
@@ -516,6 +540,12 @@
               },
               "TransportType": {
                 "value": "Mqtt"
+              },
+              "TwinUpdateSize": {
+                "value": "<TwinUpdateSize>"
+              },
+              "TwinUpdateFrequency": {
+                "value": "<TwinUpdateFrequency>"
               }
             },
             "settings": {
@@ -843,21 +873,21 @@
             "TestDescription": "deployment"
           },
           "reportMetadata10": {
-            "TestReportType": "DirectMethodReport",
+            "TestReportType": "DirectMethodConnectivityReport",
             "SenderSource": "directMethodSender1.send",
             "ReceiverSource": "directMethodReceiver1.receive",
             "TolerancePeriod": "00:01:00",
             "TestDescription": "direct method | cloud | amqp"
           },
           "reportMetadata11": {
-            "TestReportType": "DirectMethodReport",
+            "TestReportType": "DirectMethodConnectivityReport",
             "SenderSource": "directMethodSender2.send",
             "ReceiverSource": "directMethodReceiver2.receive",
             "TolerancePeriod": "00:01:00",
             "TestDescription": "direct method | cloud | mqtt"
           },
           "reportMetadata12": {
-            "TestReportType": "DirectMethodReport",
+            "TestReportType": "DirectMethodConnectivityReport",
             "SenderSource": "directMethodSender3.send",
             "TolerancePeriod": "00:01:00",
             "TestDescription": "edge agent ping"
